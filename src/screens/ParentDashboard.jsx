@@ -5,14 +5,11 @@ import {
     removePenalty,
     completeBonusMission,
     applyPenalty,
-    completeQuest,
-    failQuest,
-    revertQuest,
-    withdrawBonus,
 } from '../services/dayEngine';
 import {
     AVATAR_OPTIONS,
     CATEGORY_LABELS,
+    ICON_OPTIONS,
     generateId,
 } from '../data/defaults';
 import { exportData, importData } from '../services/storage';
@@ -31,8 +28,52 @@ import {
     Download,
     Upload,
     Eye,
+    ChevronUp,
     ChevronDown,
+    AlertTriangle,
 } from 'lucide-react';
+
+// ─── Emoji Picker Component ───
+
+function EmojiPicker({ value, onChange, options }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                className="avatar-option"
+                onClick={() => setOpen(!open)}
+                style={{ fontSize: '1.5rem', padding: 'var(--space-sm)', minWidth: '44px', minHeight: '44px' }}
+            >
+                {value || '📋'}
+            </button>
+            {open && (
+                <div
+                    className="animate-fade-in"
+                    style={{
+                        position: 'absolute', zIndex: 50, top: '100%', left: 0,
+                        background: 'var(--bg-secondary)', border: '1px solid var(--border-default)',
+                        borderRadius: 'var(--radius-md)', padding: 'var(--space-sm)',
+                        display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '4px',
+                        minWidth: '240px', boxShadow: 'var(--shadow-xl)',
+                    }}
+                >
+                    {(options || ICON_OPTIONS).map(emoji => (
+                        <button
+                            key={emoji}
+                            type="button"
+                            className={`avatar-option ${value === emoji ? 'selected' : ''}`}
+                            style={{ fontSize: '1.25rem', padding: '6px' }}
+                            onClick={() => { onChange(emoji); setOpen(false); }}
+                        >
+                            {emoji}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 // ─── Tab Components ───
 
@@ -76,15 +117,12 @@ function ChildrenTab() {
         <div className="flex flex-col gap-md animate-fade-in">
             <h3>Profile Dzieci</h3>
 
-            {/* Existing children */}
             <div className="flex flex-col gap-sm">
                 {state.children.map(child => (
                     <div key={child.id} className="edit-list-item">
                         {editingId === child.id ? (
                             <>
-                                <span className="quest-icon" onClick={() => setShowAvatars(!showAvatars)} style={{ cursor: 'pointer' }}>
-                                    {editAvatar}
-                                </span>
+                                <EmojiPicker value={editAvatar} onChange={setEditAvatar} options={AVATAR_OPTIONS} />
                                 <input
                                     type="text"
                                     className="input flex-1"
@@ -115,17 +153,10 @@ function ChildrenTab() {
                 ))}
             </div>
 
-            {/* Add new child */}
             <div className="card" style={{ background: 'var(--bg-primary)' }}>
                 <h4 className="mb-sm">Dodaj dziecko</h4>
                 <div className="flex gap-sm items-center mb-sm">
-                    <button
-                        className="avatar-option"
-                        onClick={() => setShowAvatars(!showAvatars)}
-                        style={{ fontSize: '1.5rem', padding: 'var(--space-sm)', minWidth: '44px' }}
-                    >
-                        {newAvatar}
-                    </button>
+                    <EmojiPicker value={newAvatar} onChange={setNewAvatar} options={AVATAR_OPTIONS} />
                     <input
                         type="text"
                         className="input flex-1"
@@ -138,31 +169,15 @@ function ChildrenTab() {
                         <Plus size={16} /> Dodaj
                     </button>
                 </div>
-
-                {showAvatars && (
-                    <div className="avatar-grid animate-fade-in">
-                        {AVATAR_OPTIONS.map(emoji => (
-                            <button
-                                key={emoji}
-                                className={`avatar-option ${(editingId ? editAvatar : newAvatar) === emoji ? 'selected' : ''}`}
-                                onClick={() => {
-                                    if (editingId) setEditAvatar(emoji);
-                                    else setNewAvatar(emoji);
-                                    setShowAvatars(false);
-                                }}
-                            >
-                                {emoji}
-                            </button>
-                        ))}
-                    </div>
-                )}
             </div>
         </div>
     );
 }
 
+// ─── Generic Editable Template List with Emoji Selector & Reordering ───
+
 function EditableTemplateList({ templateType, label, fields }) {
-    const { state, addTaskTemplate, removeTaskTemplate, updateTaskTemplate } = useApp();
+    const { state, addTaskTemplate, removeTaskTemplate, updateTaskTemplate, updateTaskTemplates } = useApp();
     const items = state.taskTemplates[templateType];
     const [adding, setAdding] = useState(false);
     const [newItem, setNewItem] = useState({});
@@ -187,6 +202,72 @@ function EditableTemplateList({ templateType, label, fields }) {
         setEditItem({});
     };
 
+    const moveItem = (index, direction) => {
+        const newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= items.length) return;
+        const reordered = [...items];
+        const [moved] = reordered.splice(index, 1);
+        reordered.splice(newIndex, 0, moved);
+        updateTaskTemplates(templateType, reordered);
+    };
+
+    const renderField = (field, itemState, setItemState) => {
+        if (field.type === 'icon') {
+            return (
+                <div key={field.name}>
+                    <label className="text-xs text-muted mb-xs" style={{ display: 'block' }}>{field.label}</label>
+                    <EmojiPicker
+                        value={itemState[field.name] || '📋'}
+                        onChange={(emoji) => setItemState(prev => ({ ...prev, [field.name]: emoji }))}
+                    />
+                </div>
+            );
+        }
+        if (field.type === 'select') {
+            return (
+                <div key={field.name}>
+                    <label className="text-xs text-muted mb-xs" style={{ display: 'block' }}>{field.label}</label>
+                    <select
+                        className="input"
+                        value={itemState[field.name] || field.defaultValue || ''}
+                        onChange={(e) => setItemState(prev => ({ ...prev, [field.name]: e.target.value }))}
+                    >
+                        {field.options.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                </div>
+            );
+        }
+        if (field.type === 'checkbox') {
+            return (
+                <label key={field.name} className="flex items-center gap-sm" style={{ marginBottom: '4px' }}>
+                    <input
+                        type="checkbox"
+                        checked={itemState[field.name] || false}
+                        onChange={(e) => setItemState(prev => ({ ...prev, [field.name]: e.target.checked }))}
+                    />
+                    <span className="text-sm">{field.label}</span>
+                </label>
+            );
+        }
+        return (
+            <div key={field.name}>
+                <label className="text-xs text-muted mb-xs" style={{ display: 'block' }}>{field.label}</label>
+                <input
+                    type={field.type || 'text'}
+                    className="input"
+                    placeholder={field.placeholder}
+                    value={itemState[field.name] || ''}
+                    onChange={(e) => setItemState(prev => ({
+                        ...prev,
+                        [field.name]: field.type === 'number' ? Number(e.target.value) : e.target.value,
+                    }))}
+                />
+            </div>
+        );
+    };
+
     return (
         <div className="flex flex-col gap-md animate-fade-in">
             <div className="flex items-center justify-between">
@@ -196,92 +277,22 @@ function EditableTemplateList({ templateType, label, fields }) {
                 </button>
             </div>
 
-            {/* Add form */}
             {adding && (
                 <div className="card animate-slide-up" style={{ background: 'var(--bg-primary)' }}>
-                    {fields.map(field => (
-                        <div key={field.name} className="mb-sm">
-                            <label className="text-xs text-muted mb-xs" style={{ display: 'block' }}>{field.label}</label>
-                            {field.type === 'select' ? (
-                                <select
-                                    className="input"
-                                    value={newItem[field.name] || field.defaultValue || ''}
-                                    onChange={(e) => setNewItem(prev => ({ ...prev, [field.name]: e.target.value }))}
-                                >
-                                    {field.options.map(opt => (
-                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                    ))}
-                                </select>
-                            ) : field.type === 'checkbox' ? (
-                                <label className="flex items-center gap-sm">
-                                    <input
-                                        type="checkbox"
-                                        checked={newItem[field.name] || false}
-                                        onChange={(e) => setNewItem(prev => ({ ...prev, [field.name]: e.target.checked }))}
-                                    />
-                                    <span className="text-sm">{field.label}</span>
-                                </label>
-                            ) : (
-                                <input
-                                    type={field.type || 'text'}
-                                    className="input"
-                                    placeholder={field.placeholder}
-                                    value={newItem[field.name] || ''}
-                                    onChange={(e) => setNewItem(prev => ({
-                                        ...prev,
-                                        [field.name]: field.type === 'number' ? Number(e.target.value) : e.target.value,
-                                    }))}
-                                />
-                            )}
-                        </div>
-                    ))}
-                    <div className="flex gap-sm justify-end">
+                    {fields.map(f => renderField(f, newItem, setNewItem))}
+                    <div className="flex gap-sm justify-end" style={{ marginTop: 'var(--space-sm)' }}>
                         <button className="btn btn-secondary" onClick={() => setAdding(false)}>Anuluj</button>
                         <button className="btn btn-primary" onClick={handleAdd} disabled={!newItem.text?.trim()}>Zapisz</button>
                     </div>
                 </div>
             )}
 
-            {/* Existing items */}
             <div className="flex flex-col gap-sm">
-                {items.map(item => (
+                {items.map((item, idx) => (
                     <div key={item.id} className="edit-list-item">
                         {editingId === item.id ? (
                             <div className="flex flex-col gap-sm w-full">
-                                {fields.map(field => (
-                                    <div key={field.name}>
-                                        {field.type === 'checkbox' ? (
-                                            <label className="flex items-center gap-sm">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={editItem[field.name] || false}
-                                                    onChange={(e) => setEditItem(prev => ({ ...prev, [field.name]: e.target.checked }))}
-                                                />
-                                                <span className="text-sm">{field.label}</span>
-                                            </label>
-                                        ) : field.type === 'select' ? (
-                                            <select
-                                                className="input"
-                                                value={editItem[field.name] || ''}
-                                                onChange={(e) => setEditItem(prev => ({ ...prev, [field.name]: e.target.value }))}
-                                            >
-                                                {field.options.map(opt => (
-                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                ))}
-                                            </select>
-                                        ) : (
-                                            <input
-                                                type={field.type || 'text'}
-                                                className="input"
-                                                value={editItem[field.name] || ''}
-                                                onChange={(e) => setEditItem(prev => ({
-                                                    ...prev,
-                                                    [field.name]: field.type === 'number' ? Number(e.target.value) : e.target.value,
-                                                }))}
-                                            />
-                                        )}
-                                    </div>
-                                ))}
+                                {fields.map(f => renderField(f, editItem, setEditItem))}
                                 <div className="flex gap-sm justify-end">
                                     <button className="btn btn-icon" onClick={() => setEditingId(null)}><X size={16} /></button>
                                     <button className="btn btn-icon" onClick={handleSaveEdit} style={{ color: 'var(--color-success)' }}>
@@ -291,6 +302,27 @@ function EditableTemplateList({ templateType, label, fields }) {
                             </div>
                         ) : (
                             <>
+                                {/* Reorder buttons */}
+                                <div className="flex flex-col gap-xs" style={{ marginRight: '4px' }}>
+                                    <button
+                                        className="btn btn-icon"
+                                        onClick={() => moveItem(idx, -1)}
+                                        disabled={idx === 0}
+                                        style={{ padding: '2px', opacity: idx === 0 ? 0.3 : 1 }}
+                                        title="Przesuń wyżej"
+                                    >
+                                        <ChevronUp size={14} />
+                                    </button>
+                                    <button
+                                        className="btn btn-icon"
+                                        onClick={() => moveItem(idx, 1)}
+                                        disabled={idx === items.length - 1}
+                                        style={{ padding: '2px', opacity: idx === items.length - 1 ? 0.3 : 1 }}
+                                        title="Przesuń niżej"
+                                    >
+                                        <ChevronDown size={14} />
+                                    </button>
+                                </div>
                                 <span className="quest-icon">{item.icon || '📋'}</span>
                                 <div className="flex-1">
                                     <span className="font-medium text-sm">{item.text}</span>
@@ -298,7 +330,14 @@ function EditableTemplateList({ templateType, label, fields }) {
                                         {item.rewardMinutes && <span className="text-success">+{item.rewardMinutes} min</span>}
                                         {item.penaltyMinutes && <span className="text-danger">−{item.penaltyMinutes} min</span>}
                                         {item.category && <span> · {CATEGORY_LABELS[item.category]?.label || item.category}</span>}
-                                        {item.hasNextDayConsequence && <span className="text-warning"> · ⚡ jutro: −{item.nextDayPenalty} min</span>}
+                                        {item.hasNextDayConsequence && (
+                                            <span className="text-warning">
+                                                {' '}· ⚡ jutro: {item.nextDayPenalty ? `−${item.nextDayPenalty}` : item.nextDayBonus ? `+${item.nextDayBonus}` : ''} min
+                                            </span>
+                                        )}
+                                        {item.multiUse !== undefined && (
+                                            <span> · {item.multiUse ? '🔁 wielokrotne' : '1x jednorazowe'}</span>
+                                        )}
                                     </div>
                                 </div>
                                 <button className="btn btn-icon" onClick={() => startEdit(item)}>
@@ -327,16 +366,19 @@ function QuestsTab() {
             label="Codzienne Questy"
             fields={[
                 { name: 'text', label: 'Nazwa questa', placeholder: 'Np. Pościelenie łóżka', type: 'text' },
-                { name: 'icon', label: 'Ikona (emoji)', placeholder: '🎯', type: 'text' },
+                { name: 'icon', label: 'Ikona', type: 'icon' },
                 {
                     name: 'category', label: 'Kategoria', type: 'select', defaultValue: 'morning',
                     options: [
                         { value: 'morning', label: '☀️ Poranny' },
                         { value: 'afternoon', label: '🏫 Popołudniowy' },
                         { value: 'evening', label: '🧹 Wieczorny' },
+                        { value: 'boss', label: '🏰 Finał Dnia' },
                     ],
                 },
                 { name: 'penaltyMinutes', label: 'Kara za niewykonanie (minuty)', placeholder: '10', type: 'number' },
+                { name: 'hasNextDayConsequence', label: 'Skutek przeniesiony na następny dzień', type: 'checkbox' },
+                { name: 'nextDayPenalty', label: 'Obniżenie czasu bazowego jutro (minuty)', placeholder: '10', type: 'number' },
             ]}
         />
     );
@@ -349,8 +391,11 @@ function BonusTab() {
             label="Misje Dodatkowe"
             fields={[
                 { name: 'text', label: 'Nazwa misji', placeholder: 'Np. Odkurzanie pokoju', type: 'text' },
-                { name: 'icon', label: 'Ikona (emoji)', placeholder: '⭐', type: 'text' },
+                { name: 'icon', label: 'Ikona', type: 'icon' },
                 { name: 'rewardMinutes', label: 'Nagroda (minuty)', placeholder: '10', type: 'number' },
+                { name: 'multiUse', label: 'Można użyć wiele razy na dobę', type: 'checkbox' },
+                { name: 'hasNextDayConsequence', label: 'Bonus przeniesiony na następny dzień', type: 'checkbox' },
+                { name: 'nextDayBonus', label: 'Dodatkowy czas bazowy jutro (minuty)', placeholder: '10', type: 'number' },
             ]}
         />
     );
@@ -363,8 +408,9 @@ function PenaltiesTab() {
             label="Uchybienia"
             fields={[
                 { name: 'text', label: 'Nazwa uchybienia', placeholder: 'Np. Kłótnia z rodzeństwem', type: 'text' },
-                { name: 'icon', label: 'Ikona (emoji)', placeholder: '⚠️', type: 'text' },
+                { name: 'icon', label: 'Ikona', type: 'icon' },
                 { name: 'penaltyMinutes', label: 'Kara (minuty)', placeholder: '10', type: 'number' },
+                { name: 'multiUse', label: 'Można użyć wiele razy na dobę', type: 'checkbox' },
                 { name: 'hasNextDayConsequence', label: 'Konsekwencja na następny dzień', type: 'checkbox' },
                 { name: 'nextDayPenalty', label: 'Obniżenie czasu bazowego jutro (minuty)', placeholder: '10', type: 'number' },
             ]}
@@ -414,30 +460,15 @@ function SettingsTab() {
                 <div className="flex flex-col gap-md">
                     <div>
                         <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Czas bazowy (minuty)</label>
-                        <input
-                            type="number"
-                            className="input"
-                            value={baseTime}
-                            onChange={(e) => setBaseTime(Number(e.target.value))}
-                        />
+                        <input type="number" className="input" value={baseTime} onChange={(e) => setBaseTime(Number(e.target.value))} />
                     </div>
                     <div>
                         <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Czas maksymalny (minuty)</label>
-                        <input
-                            type="number"
-                            className="input"
-                            value={maxTime}
-                            onChange={(e) => setMaxTime(Number(e.target.value))}
-                        />
+                        <input type="number" className="input" value={maxTime} onChange={(e) => setMaxTime(Number(e.target.value))} />
                     </div>
                     <div>
                         <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Krok czasowy (minuty)</label>
-                        <input
-                            type="number"
-                            className="input"
-                            value={timeStep}
-                            onChange={(e) => setTimeStep(Number(e.target.value))}
-                        />
+                        <input type="number" className="input" value={timeStep} onChange={(e) => setTimeStep(Number(e.target.value))} />
                     </div>
                     <button className="btn btn-primary" onClick={handleSave}>
                         <Save size={16} /> Zapisz ustawienia
@@ -498,7 +529,6 @@ function ChildPreviewTab() {
                 <h3>Podgląd Dnia Dziecka</h3>
             </div>
 
-            {/* Child selector */}
             <div className="flex gap-sm flex-wrap">
                 {state.children.map(c => (
                     <button
@@ -523,6 +553,19 @@ function ChildPreviewTab() {
                         </div>
                     </div>
 
+                    {/* Carry-over info */}
+                    {dayLog.carryOverEffects && dayLog.carryOverEffects.length > 0 && (
+                        <div className="carry-over-banner">
+                            <div className="flex items-center gap-sm mb-sm">
+                                <AlertTriangle size={16} className="text-warning" />
+                                <strong className="text-warning text-sm">Konsekwencje z wczoraj</strong>
+                            </div>
+                            {dayLog.carryOverEffects.map((eff, i) => (
+                                <p key={i} className="text-sm text-secondary">{eff.text}</p>
+                            ))}
+                        </div>
+                    )}
+
                     {/* Parent can add bonuses */}
                     <div className="card card-success-top">
                         <h4 className="mb-sm text-success flex items-center gap-sm">
@@ -537,6 +580,7 @@ function ChildPreviewTab() {
                                     disabled={dayLog.currentTime >= dayLog.maxTime}
                                 >
                                     {mission.icon} {mission.text} (+{mission.rewardMinutes})
+                                    {mission.hasNextDayConsequence && ' ⚡'}
                                 </button>
                             ))}
                         </div>
@@ -556,6 +600,7 @@ function ChildPreviewTab() {
                                     disabled={dayLog.currentTime <= 0}
                                 >
                                     {penalty.icon} {penalty.text} (−{penalty.penaltyMinutes})
+                                    {penalty.hasNextDayConsequence && ' ⚡'}
                                 </button>
                             ))}
                         </div>
@@ -574,13 +619,14 @@ function ChildPreviewTab() {
                                         style={{ cursor: 'pointer' }}
                                     >
                                         ❌ −{penalty.penaltyMinutes} {penalty.text}
+                                        {penalty.carryToNextDay && ' ⚡'}
                                     </button>
                                 ))}
                             </div>
                         </div>
                     )}
 
-                    {/* Event log preview */}
+                    {/* Event log */}
                     {dayLog.events.length > 0 && (
                         <div className="card">
                             <h4 className="mb-sm">Ostatnie zdarzenia</h4>
@@ -602,17 +648,17 @@ function ChildPreviewTab() {
 // ─── Main Parent Dashboard ───
 
 const TABS = [
+    { id: 'preview', label: 'Podgląd', icon: Eye },
     { id: 'children', label: 'Dzieci', icon: Users },
     { id: 'quests', label: 'Questy', icon: ListChecks },
     { id: 'bonuses', label: 'Bonusy', icon: Sparkles },
     { id: 'penalties', label: 'Uchybienia', icon: Swords },
-    { id: 'preview', label: 'Podgląd', icon: Eye },
     { id: 'settings', label: 'Ustawienia', icon: Settings },
 ];
 
 export default function ParentDashboard() {
     const { logout } = useAuth();
-    const [activeTab, setActiveTab] = useState('children');
+    const [activeTab, setActiveTab] = useState('preview');
 
     const renderTab = () => {
         switch (activeTab) {
@@ -628,7 +674,6 @@ export default function ParentDashboard() {
 
     return (
         <div className="app-container">
-            {/* Header */}
             <div className="app-header">
                 <div className="app-logo">
                     <div className="app-logo-icon">🎮</div>
@@ -642,7 +687,6 @@ export default function ParentDashboard() {
                 </button>
             </div>
 
-            {/* Tab Bar */}
             <div className="card mb-md" style={{ padding: 'var(--space-xs)' }}>
                 <div className="tab-bar">
                     {TABS.map(tab => {
@@ -661,7 +705,6 @@ export default function ParentDashboard() {
                 </div>
             </div>
 
-            {/* Tab Content */}
             <div className="card">
                 {renderTab()}
             </div>

@@ -171,6 +171,7 @@ export default function ChildDashboard() {
                                     <span className="quest-icon">{quest.icon}</span>
                                     <span className={`quest-text ${quest.status !== 'pending' ? 'completed' : ''}`}>
                                         {quest.text}
+                                        {quest.hasNextDayConsequence && <span title="Skutek na jutro" style={{ marginLeft: '4px' }}>⚡</span>}
                                     </span>
 
                                     {quest.status === 'pending' && (
@@ -237,23 +238,27 @@ export default function ChildDashboard() {
                 <p className="text-muted text-xs mb-md">Wykonaj zadania dodatkowe i zdobądź minuty!</p>
 
                 <div className="flex flex-col gap-sm">
-                    {state.taskTemplates.bonusMissions.map(mission => (
-                        <button
-                            key={mission.id}
-                            className="mission-card bonus"
-                            onClick={() => handleBonus(mission)}
-                            disabled={dayLog.currentTime >= dayLog.maxTime}
-                        >
-                            <div className="flex items-center gap-sm">
-                                <span className="quest-icon">{mission.icon}</span>
-                                <span className="font-medium text-sm">{mission.text}</span>
-                            </div>
-                            <div className="flex items-center gap-xs">
-                                <span className="mission-value text-success">+{mission.rewardMinutes}</span>
-                                <PlusCircle size={18} className="text-success" />
-                            </div>
-                        </button>
-                    ))}
+                    {state.taskTemplates.bonusMissions.map(mission => {
+                        const alreadyUsed = !mission.multiUse && dayLog.bonuses.some(b => b.templateId === mission.id);
+                        return (
+                            <button
+                                key={mission.id}
+                                className="mission-card bonus"
+                                onClick={() => handleBonus(mission)}
+                                disabled={dayLog.currentTime >= dayLog.maxTime || alreadyUsed}
+                            >
+                                <div className="flex items-center gap-sm">
+                                    <span className="quest-icon">{mission.icon}</span>
+                                    <span className="font-medium text-sm">{mission.text}</span>
+                                    {alreadyUsed && <span className="text-xs text-muted" style={{ fontStyle: 'italic' }}>✓ użyto</span>}
+                                </div>
+                                <div className="flex items-center gap-xs">
+                                    <span className="mission-value text-success">+{mission.rewardMinutes}</span>
+                                    <PlusCircle size={18} className="text-success" />
+                                </div>
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Earned bonuses today — child can withdraw */}
@@ -286,26 +291,30 @@ export default function ChildDashboard() {
                 <p className="text-muted text-xs mb-md">Unikaj pułapek! Kliknij jeśli doszło do uchybienia.</p>
 
                 <div className="flex flex-col gap-sm">
-                    {state.taskTemplates.penalties.map(penalty => (
-                        <button
-                            key={penalty.id}
-                            className="mission-card penalty"
-                            onClick={() => handlePenalty(penalty)}
-                            disabled={dayLog.currentTime <= 0}
-                        >
-                            <div className="flex items-center gap-sm">
-                                <span className="quest-icon">{penalty.icon}</span>
-                                <span className="font-medium text-sm text-left">{penalty.text}</span>
-                            </div>
-                            <div className="flex items-center gap-xs flex-shrink-0">
-                                <span className="mission-value text-danger">−{penalty.penaltyMinutes}</span>
-                                {penalty.hasNextDayConsequence && (
-                                    <AlertTriangle size={14} className="text-warning" title="Konsekwencja na jutro" />
-                                )}
-                                <MinusCircle size={18} className="text-danger" />
-                            </div>
-                        </button>
-                    ))}
+                    {state.taskTemplates.penalties.map(penalty => {
+                        const alreadyUsed = !penalty.multiUse && dayLog.penalties.some(p => p.templateId === penalty.id);
+                        return (
+                            <button
+                                key={penalty.id}
+                                className="mission-card penalty"
+                                onClick={() => handlePenalty(penalty)}
+                                disabled={dayLog.currentTime <= 0 || alreadyUsed}
+                            >
+                                <div className="flex items-center gap-sm">
+                                    <span className="quest-icon">{penalty.icon}</span>
+                                    <span className="font-medium text-sm text-left">{penalty.text}</span>
+                                    {alreadyUsed && <span className="text-xs text-muted" style={{ fontStyle: 'italic' }}>✓ użyto</span>}
+                                </div>
+                                <div className="flex items-center gap-xs flex-shrink-0">
+                                    <span className="mission-value text-danger">−{penalty.penaltyMinutes}</span>
+                                    {penalty.hasNextDayConsequence && (
+                                        <AlertTriangle size={14} className="text-warning" title="Konsekwencja na jutro" />
+                                    )}
+                                    <MinusCircle size={18} className="text-danger" />
+                                </div>
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Applied penalties — child CANNOT remove (parent only) */}

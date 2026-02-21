@@ -29,14 +29,36 @@ export function createDayLog(date, templates, settings, previousDayLog = null) {
             if (penalty.carryToNextDay && penalty.nextDayPenalty > 0) {
                 adjustedBaseTime -= penalty.nextDayPenalty;
                 carryOverEffects.push({
-                    text: `Konsekwencja z wczoraj: "${penalty.text}" → −${penalty.nextDayPenalty} min od czasu bazowego`,
+                    text: `Konsekwencja z wczoraj (uchybienie): "${penalty.text}" → −${penalty.nextDayPenalty} min od czasu bazowego`,
                     penaltyMinutes: penalty.nextDayPenalty,
+                });
+            }
+        }
+
+        // Check failed quests that carry over to next day
+        for (const quest of previousDayLog.quests) {
+            if (quest.status === 'failed' && quest.hasNextDayConsequence && quest.nextDayPenalty > 0) {
+                adjustedBaseTime -= quest.nextDayPenalty;
+                carryOverEffects.push({
+                    text: `Konsekwencja z wczoraj (quest): "${quest.text}" → −${quest.nextDayPenalty} min od czasu bazowego`,
+                    penaltyMinutes: quest.nextDayPenalty,
+                });
+            }
+        }
+
+        // Check bonuses that grant next-day bonus
+        for (const bonus of previousDayLog.bonuses) {
+            if (bonus.hasNextDayConsequence && bonus.nextDayBonus > 0) {
+                adjustedBaseTime += bonus.nextDayBonus;
+                carryOverEffects.push({
+                    text: `Bonus z wczoraj: "${bonus.text}" → +${bonus.nextDayBonus} min do czasu bazowego`,
+                    penaltyMinutes: -bonus.nextDayBonus,
                 });
             }
         }
     }
 
-    adjustedBaseTime = Math.max(0, adjustedBaseTime);
+    adjustedBaseTime = Math.max(0, Math.min(settings.maxTime, adjustedBaseTime));
 
     return {
         date,
@@ -49,6 +71,8 @@ export function createDayLog(date, templates, settings, previousDayLog = null) {
             category: q.category,
             penaltyMinutes: q.penaltyMinutes,
             icon: q.icon,
+            hasNextDayConsequence: q.hasNextDayConsequence || false,
+            nextDayPenalty: q.nextDayPenalty || 0,
             status: 'pending', // 'pending' | 'done' | 'failed'
         })),
         bonuses: [],
@@ -160,6 +184,8 @@ export function completeBonusMission(dayLog, missionTemplate) {
         templateId: missionTemplate.id,
         text: missionTemplate.text,
         rewardMinutes: missionTemplate.rewardMinutes,
+        hasNextDayConsequence: missionTemplate.hasNextDayConsequence || false,
+        nextDayBonus: missionTemplate.nextDayBonus || 0,
         completedAt: Date.now(),
     };
 
