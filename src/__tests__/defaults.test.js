@@ -10,14 +10,33 @@ import {
     CATEGORY_LABELS,
     AVATAR_OPTIONS,
     ICON_OPTIONS,
+    DAY_LABELS,
     generateId,
 } from '../data/defaults';
 
 describe('DEFAULT_SETTINGS', () => {
-    it('has required fields', () => {
+    it('has required time fields', () => {
         expect(DEFAULT_SETTINGS.baseTime).toBeGreaterThan(0);
         expect(DEFAULT_SETTINGS.maxTime).toBeGreaterThan(DEFAULT_SETTINGS.baseTime);
         expect(DEFAULT_SETTINGS.timeStep).toBeGreaterThan(0);
+    });
+
+    it('has XP and level settings', () => {
+        expect(DEFAULT_SETTINGS.xpMultiplierOffline).toBeGreaterThanOrEqual(1);
+        expect(Array.isArray(DEFAULT_SETTINGS.levelThresholds)).toBe(true);
+        expect(DEFAULT_SETTINGS.levelThresholds.length).toBeGreaterThan(0);
+    });
+
+    it('has offline day settings', () => {
+        expect(Array.isArray(DEFAULT_SETTINGS.offlineDaysSchedule)).toBe(true);
+        expect(typeof DEFAULT_SETTINGS.offlineDaysOverride).toBe('object');
+    });
+
+    it('level thresholds are in ascending XP order', () => {
+        const xps = DEFAULT_SETTINGS.levelThresholds.map(t => t.xp);
+        for (let i = 1; i < xps.length; i++) {
+            expect(xps[i]).toBeGreaterThan(xps[i - 1]);
+        }
     });
 });
 
@@ -34,6 +53,8 @@ describe('DEFAULT_DAILY_QUESTS', () => {
             expect(q.penaltyMinutes).toBeGreaterThan(0);
             expect(q.icon).toBeTruthy();
             expect(typeof q.hasNextDayConsequence).toBe('boolean');
+            expect(Array.isArray(q.assignedTo)).toBe(true);
+            expect(typeof q.xpReward).toBe('number');
         });
     });
 
@@ -45,8 +66,7 @@ describe('DEFAULT_DAILY_QUESTS', () => {
     });
 
     it('includes a boss category quest', () => {
-        const bossQuests = DEFAULT_DAILY_QUESTS.filter(q => q.category === 'boss');
-        expect(bossQuests.length).toBeGreaterThan(0);
+        expect(DEFAULT_DAILY_QUESTS.some(q => q.category === 'boss')).toBe(true);
     });
 });
 
@@ -62,6 +82,8 @@ describe('DEFAULT_BONUS_MISSIONS', () => {
             expect(m.rewardMinutes).toBeGreaterThan(0);
             expect(m.icon).toBeTruthy();
             expect(typeof m.multiUse).toBe('boolean');
+            expect(Array.isArray(m.assignedTo)).toBe(true);
+            expect(typeof m.xpReward).toBe('number');
         });
     });
 });
@@ -79,15 +101,33 @@ describe('DEFAULT_PENALTIES', () => {
             expect(p.icon).toBeTruthy();
             expect(typeof p.hasNextDayConsequence).toBe('boolean');
             expect(typeof p.multiUse).toBe('boolean');
+            expect(Array.isArray(p.assignedTo)).toBe(true);
+            expect(typeof p.xpPenalty).toBe('number');
         });
+    });
+
+    it('all penalties default to 0 XP penalty', () => {
+        DEFAULT_PENALTIES.forEach(p => {
+            expect(p.xpPenalty).toBe(0);
+        });
+    });
+});
+
+describe('DAY_LABELS', () => {
+    it('has 7 days', () => {
+        expect(DAY_LABELS).toHaveLength(7);
+    });
+
+    it('covers all day numbers 0-6', () => {
+        const values = DAY_LABELS.map(d => d.value);
+        expect(values).toEqual([0, 1, 2, 3, 4, 5, 6]);
     });
 });
 
 describe('generateId', () => {
     it('generates unique IDs', () => {
-        const id1 = generateId();
-        const id2 = generateId();
-        expect(id1).not.toBe(id2);
+        const ids = new Set(Array.from({ length: 100 }, () => generateId()));
+        expect(ids.size).toBe(100);
     });
 
     it('generates string IDs', () => {

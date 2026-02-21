@@ -10,6 +10,7 @@ import {
 import {
     getTodayStr,
     createDayLog,
+    compactOldLogs,
 } from '../services/dayEngine';
 
 const AppContext = createContext(null);
@@ -21,7 +22,7 @@ function createInitialState() {
     return {
         parentPinHash: null,
         isSetup: false,
-        children: [],
+        children: [],  // each: { id, name, avatar, xp: 0 }
         taskTemplates: {
             dailyQuests: DEFAULT_DAILY_QUESTS,
             bonusMissions: DEFAULT_BONUS_MISSIONS,
@@ -40,12 +41,44 @@ export function AppProvider({ children: reactChildren }) {
     useEffect(() => {
         const stored = loadState();
         if (stored) {
-            setState(stored);
+            // Migrate: ensure settings have new fields
+            const settings = {
+                ...DEFAULT_SETTINGS,
+                ...stored.settings,
+            };
+            setState({ ...stored, settings });
         } else {
             setState(createInitialState());
         }
         setLoading(false);
     }, []);
+
+    // Compact old logs on mount (after state is loaded)
+    useEffect(() => {
+        if (!state || loading) return;
+        const dayLogs = state.dayLogs;
+        if (!dayLogs) return;
+
+        let hasChanges = false;
+        const compactedLogs = {};
+
+        for (const [childId, childLogs] of Object.entries(dayLogs)) {
+            const compacted = compactOldLogs(childLogs, 14);
+            compactedLogs[childId] = compacted;
+            // Check if anything actually changed
+            if (Object.keys(compacted).some(date => compacted[date] !== childLogs[date])) {
+                hasChanges = true;
+            }
+        }
+
+        if (hasChanges) {
+            setState(prev => ({
+                ...prev,
+                dayLogs: compactedLogs,
+            }));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading]); // Only run once after load
 
     // Persist state to localStorage on every change
     useEffect(() => {
@@ -71,7 +104,7 @@ export function AppProvider({ children: reactChildren }) {
 
     // ─── Children CRUD ───
     const addChild = useCallback((name, avatar) => {
-        const child = { id: generateId(), name, avatar };
+        const child = { id: generateId(), name, avatar, xp: 0 };
         setState(prev => ({
             ...prev,
             children: [...prev.children, child],
@@ -166,11 +199,12 @@ export function AppProvider({ children: reactChildren }) {
             return childLogs[today];
         }
 
-        // Find previous day log for carry-over
+        // Find previous day log for carry-over (most recent)
         const sortedDates = Object.keys(childLogs).sort().reverse();
         const previousDayLog = sortedDates.length > 0 ? childLogs[sortedDates[0]] : null;
 
-        const newDayLog = createDayLog(today, state.taskTemplates, state.settings, previousDayLog);
+        // createDayLog handles the isYesterday check internally
+        const newDayLog = createDayLog(today, state.taskTemplates, state.settings, childId, previousDayLog);
 
         setState(prev => ({
             ...prev,
@@ -188,16 +222,34 @@ export function AppProvider({ children: reactChildren }) {
 
     const updateDayLog = useCallback((childId, dayLog) => {
         const today = getTodayStr();
-        setState(prev => ({
-            ...prev,
-            dayLogs: {
-                ...prev.dayLogs,
-                [childId]: {
-                    ...(prev.dayLogs?.[childId] || {}),
-                    [today]: dayLog,
+        setState(prev => {
+            // Calculate XP delta from the dayLog change
+            const prevDayLog = prev.dayLogs?.[childId]?.[today];
+            const prevXp = prevDayLog?.xpEarned || 0;
+            const newXp = dayLog.xpEarned || 0;
+            const xpDelta = newXp - prevXp;
+
+            // Update child's total XP
+            const updatedChildren = xpDelta !== 0
+                ? prev.children.map(c =>
+                    c.id === childId
+                        ? { ...c, xp: Math.max(0, (c.xp || 0) + xpDelta) }
+                        : c
+                )
+                : prev.children;
+
+            return {
+                ...prev,
+                children: updatedChildren,
+                dayLogs: {
+                    ...prev.dayLogs,
+                    [childId]: {
+                        ...(prev.dayLogs?.[childId] || {}),
+                        [today]: dayLog,
+                    },
                 },
-            },
-        }));
+            };
+        });
     }, []);
 
     // ─── Import/Export ───
