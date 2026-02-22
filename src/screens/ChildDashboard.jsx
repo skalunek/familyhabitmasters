@@ -10,6 +10,7 @@ import {
     applyPenalty,
     computeLevel,
     isOfflineDay,
+    useVoucher,
 } from '../services/dayEngine';
 import { CATEGORY_LABELS } from '../data/defaults';
 import {
@@ -23,10 +24,19 @@ import {
     Lock,
     Star,
     Zap,
+    Backpack,
+    Shield,
+    HandshakeIcon,
+    CheckCircle2,
+    XCircle,
 } from 'lucide-react';
 
 export default function ChildDashboard() {
-    const { state, getOrCreateDayLog, updateDayLog } = useApp();
+    const {
+        state, getOrCreateDayLog, updateDayLog,
+        removeVoucher, updateCursePoints,
+        requestNegotiation, respondToContract, completeContract,
+    } = useApp();
     const { currentChildId, logout } = useAuth();
 
     const [dayLog, setDayLog] = useState(null);
@@ -42,8 +52,6 @@ export default function ChildDashboard() {
     }, [currentChildId, getOrCreateDayLog]);
 
     // ─── Dynamic offline day detection ───
-    // When parent toggles offline for today AFTER the day log was created,
-    // sync the dayLog's offline status with current settings.
     useEffect(() => {
         if (!dayLog || !selectedChild) return;
         const currentlyOffline = isOfflineDay(dayLog.date, state.settings);
@@ -55,7 +63,6 @@ export default function ChildDashboard() {
         const updated = { ...dayLog, isOfflineDay: currentlyOffline, xpMultiplier: newMultiplier };
 
         if (currentlyOffline && !dayLog.isOfflineDay) {
-            // Switching TO offline: undo carry-over time effects and defer them
             const totalCarryOverMinutes = (dayLog.carryOverEffects || [])
                 .reduce((sum, e) => sum + e.penaltyMinutes, 0);
             if (totalCarryOverMinutes !== 0) {
@@ -68,7 +75,6 @@ export default function ChildDashboard() {
             }
             updated.deferredCarryOvers = dayLog.carryOverEffects || [];
         } else if (!currentlyOffline && dayLog.isOfflineDay) {
-            // Switching FROM offline: apply deferred carry-overs to time
             const deferred = dayLog.deferredCarryOvers || [];
             let timeDelta = 0;
             for (const eff of deferred) { timeDelta -= eff.penaltyMinutes; }
@@ -91,8 +97,18 @@ export default function ChildDashboard() {
     }
 
     const child = selectedChild;
+    const curse = child.activeCurse;
+    const isCursed = curse?.isActive === true;
+    const negotiation = child.negotiation;
 
-    // ─── Time Gating: check if morning + afternoon quests are all resolved ───
+    // ─── Curse helpers ───
+    const curseProgress = isCursed && curse.requiredPoints > 0
+        ? curse.gatheredPoints / curse.requiredPoints
+        : 0;
+    const negotiationThreshold = curse?.negotiationThreshold ?? 0.7;
+    const canNegotiate = isCursed && curseProgress >= negotiationThreshold;
+
+    // ─── Time Gating ───
     const gatingQuests = dayLog.quests.filter(q =>
         q.category === 'morning' || q.category === 'afternoon'
     );
@@ -102,9 +118,20 @@ export default function ChildDashboard() {
     // ─── XP & Level ───
     const levelInfo = computeLevel(child.xp || 0, state.settings.levelThresholds || []);
 
+    // ─── Inventory ───
+    const now = Date.now();
+    const validVouchers = (child.inventory || []).filter(v => !v.expiresAt || v.expiresAt > now);
+
     // ─── Handlers ───
     const handleCompleteQuest = (questId) => {
-        const updated = completeQuest(dayLog, questId);
+        let updated = completeQuest(dayLog, questId);
+        if (isCursed) {
+            const quest = dayLog.quests.find(q => q.id === questId);
+            if (quest) {
+                const xpGain = (quest.xpReward || 0) * (dayLog.xpMultiplier || 1);
+                if (xpGain > 0) updateCursePoints(child.id, xpGain, 0);
+            }
+        }
         setDayLog(updated);
         updateDayLog(selectedChild.id, updated);
     };
@@ -122,9 +149,23 @@ export default function ChildDashboard() {
     };
 
     const handleBonus = (mission) => {
-        const updated = completeBonusMission(dayLog, mission);
-        setDayLog(updated);
-        updateDayLog(selectedChild.id, updated);
+        if (isCursed) {
+            // During curse: bonuses feed gatheredPoints instead of time
+            const xpGain = (mission.xpReward || 0) * (dayLog.xpMultiplier || 1);
+            const cursePoints = mission.rewardMinutes + xpGain;
+            updateCursePoints(child.id, cursePoints, 0);
+
+            // Still track XP for leveling
+            const updated = completeBonusMission(dayLog, mission);
+            // But don't add time (override currentTime back)
+            const curseUpdated = { ...updated, currentTime: dayLog.currentTime };
+            setDayLog(curseUpdated);
+            updateDayLog(selectedChild.id, curseUpdated);
+        } else {
+            const updated = completeBonusMission(dayLog, mission);
+            setDayLog(updated);
+            updateDayLog(selectedChild.id, updated);
+        }
     };
 
     const handleWithdrawBonus = (bonusId) => {
@@ -134,10 +175,46 @@ export default function ChildDashboard() {
     };
 
     const handlePenalty = (penalty) => {
-        const carryToNextDay = penalty.hasNextDayConsequence;
-        const updated = applyPenalty(dayLog, penalty, carryToNextDay);
-        setDayLog(updated);
-        updateDayLog(selectedChild.id, updated);
+        if (isCursed) {
+            // During curse: penalties increase requiredPoints
+            const debtIncrease = penalty.penaltyMinutes;
+            updateCursePoints(child.id, 0, debtIncrease);
+            // Still log event, but don't deduct time
+            const carryToNextDay = penalty.hasNextDayConsequence;
+            const updated = applyPenalty(dayLog, penalty, carryToNextDay);
+            const curseUpdated = { ...updated, currentTime: dayLog.currentTime };
+            setDayLog(curseUpdated);
+            updateDayLog(selectedChild.id, curseUpdated);
+        } else {
+            const carryToNextDay = penalty.hasNextDayConsequence;
+            const updated = applyPenalty(dayLog, penalty, carryToNextDay);
+            setDayLog(updated);
+            updateDayLog(selectedChild.id, updated);
+        }
+    };
+
+    const handleUseVoucher = (voucher) => {
+        if (isCursed) return; // Can't use vouchers during curse
+        const updated = useVoucher(dayLog, voucher);
+        if (updated !== dayLog) {
+            setDayLog(updated);
+            updateDayLog(selectedChild.id, updated);
+            removeVoucher(child.id, voucher.id);
+        }
+    };
+
+    const handleNegotiate = () => {
+        if (canNegotiate) {
+            requestNegotiation(child.id);
+        }
+    };
+
+    const handleRespondContract = (accept) => {
+        respondToContract(child.id, accept);
+    };
+
+    const handleCompleteContract = () => {
+        completeContract(child.id);
     };
 
     // ─── Quest grouping ───
@@ -159,8 +236,8 @@ export default function ChildDashboard() {
     const timeColor = timePercent > 50 ? 'var(--color-success)' :
         timePercent > 25 ? 'var(--color-warning)' : 'var(--color-danger)';
 
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const nowDate = new Date();
+    const timeStr = `${String(nowDate.getHours()).padStart(2, '0')}:${String(nowDate.getMinutes()).padStart(2, '0')}`;
 
     return (
         <div className="app-container">
@@ -218,8 +295,106 @@ export default function ChildDashboard() {
                 </div>
             )}
 
-            {/* Time Circle */}
-            {!dayLog.isOfflineDay && (
+            {/* ═══ CURSE: Mroczny Licznik ═══ */}
+            {isCursed && (
+                <div className="curse-counter mb-md animate-slide-up">
+                    <div style={{ fontSize: '2rem', marginBottom: '8px' }}>⛓️</div>
+                    <h3 style={{ color: '#c4b5fd', marginBottom: '4px' }}>Klątwa aktywna!</h3>
+                    <p className="text-sm" style={{ color: '#a78bfa', marginBottom: '8px' }}>
+                        Odpracuj punkty, aby odzyskać dostęp do ekranów.
+                    </p>
+
+                    <div className="text-3xl font-black" style={{ color: '#e9d5ff' }}>
+                        {curse.gatheredPoints} <span className="text-sm font-medium" style={{ color: '#a78bfa' }}>/ {curse.requiredPoints} pkt</span>
+                    </div>
+
+                    <div className="curse-progress-container">
+                        <div
+                            className="curse-progress-fill"
+                            style={{ width: `${Math.min(100, curseProgress * 100)}%` }}
+                        />
+                        {/* Threshold marker */}
+                        <div
+                            className="curse-threshold-marker"
+                            style={{ left: `${negotiationThreshold * 100}%` }}
+                        >
+                            <span className="curse-threshold-label">
+                                ⚖️ {Math.round(negotiationThreshold * 100)}%
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="text-xs" style={{ color: '#a78bfa', marginTop: '4px' }}>
+                        {Math.round(curseProgress * 100)}% odpracowane
+                    </div>
+
+                    {/* Negotiate button — always visible, disabled until threshold */}
+                    <div style={{ marginTop: 'var(--space-md)' }}>
+                        <button
+                            className="btn btn-curse btn-lg"
+                            onClick={handleNegotiate}
+                            disabled={!canNegotiate || negotiation?.status === 'requested'}
+                            title={canNegotiate
+                                ? 'Wezwij rodzica do negocjacji!'
+                                : `Odblokuje się przy ${Math.round(negotiationThreshold * 100)}% postępu`}
+                        >
+                            <HandshakeIcon size={18} />
+                            {negotiation?.status === 'requested'
+                                ? '⏳ Czekam na rodzica...'
+                                : canNegotiate
+                                    ? '🤝 Negocjuj z rodzicem!'
+                                    : `🔒 Negocjacje (od ${Math.round(negotiationThreshold * 100)}%)`}
+                        </button>
+                    </div>
+
+                    {/* Contract offer from parent */}
+                    {negotiation?.status === 'offered' && (
+                        <div className="negotiation-card" style={{ marginTop: 'var(--space-md)', textAlign: 'left' }}>
+                            <div className="flex items-center gap-sm mb-sm">
+                                <Shield size={18} style={{ color: '#818cf8' }} />
+                                <strong style={{ color: '#e9d5ff' }}>Kontrakt Ratunkowy!</strong>
+                            </div>
+                            <p className="text-sm mb-sm" style={{ color: '#c4b5fd' }}>
+                                Rodzic proponuje zadanie, które natychmiast zrujnuje klątwę:
+                            </p>
+                            <div className="contract-badge mb-md">
+                                {negotiation.contractTask?.icon || '⚔️'} {negotiation.contractTask?.text}
+                            </div>
+                            <div className="flex gap-sm">
+                                <button className="btn btn-success flex-1" onClick={() => handleRespondContract(true)}>
+                                    <CheckCircle2 size={16} /> Akceptuję!
+                                </button>
+                                <button className="btn btn-danger flex-1" onClick={() => handleRespondContract(false)}>
+                                    <XCircle size={16} /> Odrzucam
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Accepted contract — show task to complete */}
+                    {negotiation?.status === 'accepted' && dayLog.contractTask && (
+                        <div className="negotiation-card" style={{ marginTop: 'var(--space-md)', textAlign: 'left' }}>
+                            <div className="flex items-center gap-sm mb-sm">
+                                <Shield size={18} style={{ color: '#34d399' }} />
+                                <strong className="text-success">Kontrakt zaakceptowany!</strong>
+                            </div>
+                            <p className="text-sm mb-sm text-secondary">
+                                Wykonaj zadanie i kliknij aby znieść klątwę:
+                            </p>
+                            <button
+                                className="btn btn-success btn-lg w-full"
+                                onClick={handleCompleteContract}
+                            >
+                                <CheckCircle2 size={18} />
+                                ✅ {dayLog.contractTask.icon || '⚔️'} {dayLog.contractTask.text} — Wykonane!
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Time Circle — hidden during curse */}
+            {!isCursed && !dayLog.isOfflineDay && (
                 <div className="text-center mb-md animate-slide-up">
                     <div
                         className="time-circle"
@@ -252,8 +427,8 @@ export default function ChildDashboard() {
                 </div>
             )}
 
-            {/* Offline day banner — replaces time counter */}
-            {dayLog.isOfflineDay && (
+            {/* Offline day banner */}
+            {!isCursed && dayLog.isOfflineDay && (
                 <div className="card mb-md animate-slide-up" style={{
                     background: 'linear-gradient(135deg, var(--accent-purple-rgb, rgba(139,92,246,0.15)), var(--accent-blue-rgb, rgba(59,130,246,0.15)))',
                     border: '1px solid var(--color-info)',
@@ -265,6 +440,55 @@ export default function ChildDashboard() {
                     <p className="text-sm text-secondary">Wykonuj zadania i zbieraj XP z mnożnikiem ×{dayLog.xpMultiplier}!</p>
                     <div className="text-xs text-muted" style={{ marginTop: '8px', opacity: 0.8 }}>
                         Licznik czasu wyłączony — dziś zbierasz tylko doświadczenie ⭐
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ INVENTORY — Mój Plecak ═══ */}
+            {validVouchers.length > 0 && !isCursed && (
+                <div className="card card-accent-top mb-md animate-slide-up" style={{ animationDelay: '0.05s' }}>
+                    <div className="section-header">
+                        <Backpack size={22} className="text-warning" />
+                        <h3>Mój Plecak</h3>
+                        <span className="text-xs text-muted">{validVouchers.length} artefakt{validVouchers.length === 1 ? '' : 'ów'}</span>
+                    </div>
+
+                    <div className="flex flex-col gap-sm">
+                        {validVouchers.map(voucher => {
+                            const hoursLeft = voucher.expiresAt
+                                ? (voucher.expiresAt - now) / (1000 * 60 * 60)
+                                : Infinity;
+                            const isExpiring = hoursLeft < 24;
+
+                            return (
+                                <div key={voucher.id} className={`voucher-card ${isExpiring ? 'voucher-expiring' : ''}`}>
+                                    <div className="flex items-center gap-sm">
+                                        <span style={{ fontSize: '1.3rem' }}>🎟️</span>
+                                        <div>
+                                            <div className="font-medium text-sm">{voucher.name}</div>
+                                            <div className="text-xs text-muted">
+                                                +{voucher.value} min
+                                                {voucher.expiresAt && (
+                                                    <span style={{ color: isExpiring ? 'var(--color-danger)' : 'var(--text-muted)' }}>
+                                                        {' '}· {isExpiring
+                                                            ? `⚠️ ${Math.max(0, Math.round(hoursLeft))}h left!`
+                                                            : `do ${new Date(voucher.expiresAt).toLocaleDateString('pl-PL')}`
+                                                        }
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="btn btn-success btn-sm"
+                                        onClick={() => handleUseVoucher(voucher)}
+                                        disabled={dayLog.isOfflineDay || dayLog.currentTime >= dayLog.maxTime}
+                                    >
+                                        Użyj
+                                    </button>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -295,7 +519,11 @@ export default function ChildDashboard() {
                     <Home size={22} className="text-info" />
                     <h3>Codzienne Misje</h3>
                 </div>
-                <p className="text-muted text-xs mb-md">Ukończ misje, aby utrzymać bazowy czas. Zawalone = utrata minut!</p>
+                <p className="text-muted text-xs mb-md">
+                    {isCursed
+                        ? 'Wykonuj misje aby zbierać punkty odkupienia i XP!'
+                        : 'Ukończ misje, aby utrzymać bazowy czas. Zawalone = utrata minut!'}
+                </p>
 
                 {sortedCategories.map(cat => (
                     <div key={cat}>
@@ -355,9 +583,13 @@ export default function ChildDashboard() {
             <div className="card card-success-top mb-md animate-slide-up" style={{ animationDelay: '0.2s' }}>
                 <div className="section-header">
                     <Sparkles size={22} className="text-success" />
-                    <h3>Zdobądź Czas</h3>
+                    <h3>{isCursed ? 'Zbieraj Punkty' : 'Zdobądź Czas'}</h3>
                 </div>
-                <p className="text-muted text-xs mb-md">Wykonaj zadania dodatkowe i zdobądź minuty!</p>
+                <p className="text-muted text-xs mb-md">
+                    {isCursed
+                        ? 'Wykonaj zadania dodatkowe — punkty idą na spłatę klątwy!'
+                        : 'Wykonaj zadania dodatkowe i zdobądź minuty!'}
+                </p>
 
                 <div className="flex flex-col gap-sm">
                     {state.taskTemplates.bonusMissions
@@ -372,7 +604,7 @@ export default function ChildDashboard() {
                                     key={mission.id}
                                     className="mission-card bonus"
                                     onClick={() => handleBonus(mission)}
-                                    disabled={(!dayLog.isOfflineDay && dayLog.currentTime >= dayLog.maxTime) || alreadyUsed}
+                                    disabled={(!isCursed && !dayLog.isOfflineDay && dayLog.currentTime >= dayLog.maxTime) || alreadyUsed}
                                 >
                                     <div className="flex items-center gap-sm">
                                         <span className="quest-icon">{mission.icon}</span>
@@ -380,11 +612,17 @@ export default function ChildDashboard() {
                                         {alreadyUsed && <span className="text-xs text-muted" style={{ fontStyle: 'italic' }}>✓ użyto</span>}
                                     </div>
                                     <div className="flex items-center gap-xs">
-                                        {!dayLog.isOfflineDay && (
-                                            <span className="mission-value text-success">+{mission.rewardMinutes}</span>
-                                        )}
-                                        {(mission.xpReward || 0) > 0 && (
-                                            <span className="text-xs text-warning">+{(mission.xpReward || 0) * (dayLog.xpMultiplier || 1)} XP</span>
+                                        {isCursed ? (
+                                            <span className="text-xs" style={{ color: '#a78bfa' }}>+{mission.rewardMinutes + ((mission.xpReward || 0) * (dayLog.xpMultiplier || 1))} pkt</span>
+                                        ) : (
+                                            <>
+                                                {!dayLog.isOfflineDay && (
+                                                    <span className="mission-value text-success">+{mission.rewardMinutes}</span>
+                                                )}
+                                                {(mission.xpReward || 0) > 0 && (
+                                                    <span className="text-xs text-warning">+{(mission.xpReward || 0) * (dayLog.xpMultiplier || 1)} XP</span>
+                                                )}
+                                            </>
                                         )}
                                         <PlusCircle size={18} className="text-success" />
                                     </div>
@@ -418,9 +656,13 @@ export default function ChildDashboard() {
             <div className="card card-danger-top mb-md animate-slide-up" style={{ animationDelay: '0.3s' }}>
                 <div className="section-header">
                     <Swords size={22} className="text-danger" />
-                    <h3>Utrata Czasu</h3>
+                    <h3>{isCursed ? 'Powiększ Dług' : 'Utrata Czasu'}</h3>
                 </div>
-                <p className="text-muted text-xs mb-md">Unikaj pułapek! Kliknij jeśli doszło do uchybienia.</p>
+                <p className="text-muted text-xs mb-md">
+                    {isCursed
+                        ? 'Uchybienia powiększają dług klątwy!'
+                        : 'Unikaj pułapek! Kliknij jeśli doszło do uchybienia.'}
+                </p>
 
                 <div className="flex flex-col gap-sm">
                     {state.taskTemplates.penalties
@@ -435,7 +677,7 @@ export default function ChildDashboard() {
                                     key={penalty.id}
                                     className="mission-card penalty"
                                     onClick={() => handlePenalty(penalty)}
-                                    disabled={(dayLog.currentTime <= 0 && !dayLog.isOfflineDay) || alreadyUsed}
+                                    disabled={(!isCursed && dayLog.currentTime <= 0 && !dayLog.isOfflineDay) || alreadyUsed}
                                 >
                                     <div className="flex items-center gap-sm">
                                         <span className="quest-icon">{penalty.icon}</span>
@@ -443,7 +685,11 @@ export default function ChildDashboard() {
                                         {alreadyUsed && <span className="text-xs text-muted" style={{ fontStyle: 'italic' }}>✓ użyto</span>}
                                     </div>
                                     <div className="flex items-center gap-xs flex-shrink-0">
-                                        <span className="mission-value text-danger">−{penalty.penaltyMinutes}</span>
+                                        {isCursed ? (
+                                            <span className="text-xs text-danger">+{penalty.penaltyMinutes} dług</span>
+                                        ) : (
+                                            <span className="mission-value text-danger">−{penalty.penaltyMinutes}</span>
+                                        )}
                                         {penalty.hasNextDayConsequence && (
                                             <AlertTriangle size={14} className="text-warning" title="Konsekwencja na jutro" />
                                         )}
@@ -454,7 +700,7 @@ export default function ChildDashboard() {
                         })}
                 </div>
 
-                {/* Applied penalties — child CANNOT remove (parent only) */}
+                {/* Applied penalties */}
                 {dayLog.penalties.length > 0 && (
                     <div style={{ marginTop: 'var(--space-md)' }}>
                         <div className="text-xs text-muted font-semibold mb-sm">Uchybienia dziś:</div>

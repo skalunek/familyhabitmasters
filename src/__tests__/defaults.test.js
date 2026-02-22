@@ -12,6 +12,8 @@ import {
     ICON_OPTIONS,
     DAY_LABELS,
     generateId,
+    DEFAULT_CHILD_FIELDS,
+    CURSE_DEFAULT_NEGOTIATION_THRESHOLD,
 } from '../data/defaults';
 
 describe('DEFAULT_SETTINGS', () => {
@@ -146,5 +148,25 @@ describe('AVATAR_OPTIONS', () => {
 describe('ICON_OPTIONS', () => {
     it('has at least 16 options', () => {
         expect(ICON_OPTIONS.length).toBeGreaterThanOrEqual(16);
+    });
+});
+
+describe('CURSE_DEFAULT_NEGOTIATION_THRESHOLD', () => {
+    it('is a number between 0 and 1', () => {
+        expect(CURSE_DEFAULT_NEGOTIATION_THRESHOLD).toBeGreaterThan(0);
+        expect(CURSE_DEFAULT_NEGOTIATION_THRESHOLD).toBeLessThanOrEqual(1);
+    });
+});
+
+describe('DEFAULT_CHILD_FIELDS', () => {
+    it('has required inventory and curse fields', () => {
+        expect(DEFAULT_CHILD_FIELDS.inventory).toEqual([]);
+        expect(DEFAULT_CHILD_FIELDS.activeCurse).toBeDefined();
+        expect(DEFAULT_CHILD_FIELDS.activeCurse.isActive).toBe(false);
+        expect(DEFAULT_CHILD_FIELDS.activeCurse.negotiationThreshold).toBe(CURSE_DEFAULT_NEGOTIATION_THRESHOLD);
+    });
+
+    it('has null negotiation by default', () => {
+        expect(DEFAULT_CHILD_FIELDS.negotiation).toBeNull();
     });
 });

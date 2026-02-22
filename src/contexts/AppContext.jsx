@@ -5,6 +5,8 @@ import {
     DEFAULT_DAILY_QUESTS,
     DEFAULT_BONUS_MISSIONS,
     DEFAULT_PENALTIES,
+    DEFAULT_CHILD_FIELDS,
+    CURSE_DEFAULT_NEGOTIATION_THRESHOLD,
     generateId,
 } from '../data/defaults';
 import {
@@ -22,7 +24,7 @@ function createInitialState() {
     return {
         parentPinHash: null,
         isSetup: false,
-        children: [],  // each: { id, name, avatar, xp: 0 }
+        children: [],  // each: { id, name, avatar, xp: 0, baseTime, maxTime, inventory, activeCurse, negotiation }
         taskTemplates: {
             dailyQuests: DEFAULT_DAILY_QUESTS,
             bonusMissions: DEFAULT_BONUS_MISSIONS,
@@ -46,7 +48,17 @@ export function AppProvider({ children: reactChildren }) {
                 ...DEFAULT_SETTINGS,
                 ...stored.settings,
             };
-            setState({ ...stored, settings });
+            // Migrate children: add new fields (inventory, curse, per-child time limits)
+            const children = (stored.children || []).map(c => ({
+                ...DEFAULT_CHILD_FIELDS,
+                baseTime: c.baseTime ?? settings.baseTime,
+                maxTime: c.maxTime ?? settings.maxTime,
+                ...c,
+                inventory: c.inventory || [],
+                activeCurse: c.activeCurse || { ...DEFAULT_CHILD_FIELDS.activeCurse },
+                negotiation: c.negotiation || null,
+            }));
+            setState({ ...stored, settings, children });
         } else {
             setState(createInitialState());
         }
@@ -104,13 +116,21 @@ export function AppProvider({ children: reactChildren }) {
 
     // ─── Children CRUD ───
     const addChild = useCallback((name, avatar) => {
-        const child = { id: generateId(), name, avatar, xp: 0 };
+        const child = {
+            ...DEFAULT_CHILD_FIELDS,
+            id: generateId(),
+            name,
+            avatar,
+            xp: 0,
+            baseTime: state?.settings?.baseTime ?? DEFAULT_SETTINGS.baseTime,
+            maxTime: state?.settings?.maxTime ?? DEFAULT_SETTINGS.maxTime,
+        };
         setState(prev => ({
             ...prev,
             children: [...prev.children, child],
         }));
         return child;
-    }, []);
+    }, [state?.settings?.baseTime, state?.settings?.maxTime]);
 
     const updateChild = useCallback((childId, updates) => {
         setState(prev => ({
@@ -204,7 +224,8 @@ export function AppProvider({ children: reactChildren }) {
         const previousDayLog = sortedDates.length > 0 ? childLogs[sortedDates[0]] : null;
 
         // createDayLog handles the isYesterday check internally
-        const newDayLog = createDayLog(today, state.taskTemplates, state.settings, childId, previousDayLog);
+        const childData = state.children?.find(c => c.id === childId) || null;
+        const newDayLog = createDayLog(today, state.taskTemplates, state.settings, childId, previousDayLog, childData);
 
         setState(prev => ({
             ...prev,
@@ -252,6 +273,188 @@ export function AppProvider({ children: reactChildren }) {
         });
     }, []);
 
+    // ─── Voucher Operations ───
+    const giveVoucher = useCallback((childId, voucher) => {
+        const voucherItem = {
+            id: generateId(),
+            name: voucher.name,
+            type: 'time_bonus',
+            value: voucher.value,
+            expiresAt: voucher.expiresAt, // timestamp
+            createdAt: Date.now(),
+        };
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? { ...c, inventory: [...c.inventory, voucherItem] }
+                    : c
+            ),
+        }));
+    }, []);
+
+    const removeVoucher = useCallback((childId, voucherId) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? { ...c, inventory: c.inventory.filter(v => v.id !== voucherId) }
+                    : c
+            ),
+        }));
+    }, []);
+
+    // ─── Curse Operations ───
+    const applyCurse = useCallback((childId, requiredPoints, negotiationThreshold = CURSE_DEFAULT_NEGOTIATION_THRESHOLD) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? {
+                        ...c,
+                        activeCurse: {
+                            isActive: true,
+                            requiredPoints,
+                            gatheredPoints: 0,
+                            negotiationThreshold,
+                        },
+                        negotiation: null,
+                    }
+                    : c
+            ),
+        }));
+    }, []);
+
+    const liftCurse = useCallback((childId) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? {
+                        ...c,
+                        activeCurse: { ...DEFAULT_CHILD_FIELDS.activeCurse },
+                        negotiation: null,
+                    }
+                    : c
+            ),
+        }));
+    }, []);
+
+    const updateCursePoints = useCallback((childId, gatheredDelta, requiredDelta) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c => {
+                if (c.id !== childId || !c.activeCurse?.isActive) return c;
+                return {
+                    ...c,
+                    activeCurse: {
+                        ...c.activeCurse,
+                        gatheredPoints: Math.max(0, c.activeCurse.gatheredPoints + gatheredDelta),
+                        requiredPoints: Math.max(0, c.activeCurse.requiredPoints + requiredDelta),
+                    },
+                };
+            }),
+        }));
+    }, []);
+
+    // ─── Negotiation Operations ───
+    const requestNegotiation = useCallback((childId) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? { ...c, negotiation: { status: 'requested', timestamp: Date.now() } }
+                    : c
+            ),
+        }));
+    }, []);
+
+    const createContract = useCallback((childId, contractTask) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? {
+                        ...c,
+                        negotiation: {
+                            status: 'offered',
+                            contractTask, // { text, icon }
+                            timestamp: Date.now(),
+                        },
+                    }
+                    : c
+            ),
+        }));
+    }, []);
+
+    const respondToContract = useCallback((childId, accept) => {
+        if (!accept) {
+            // Child rejects — clear negotiation, keep curse
+            setState(prev => ({
+                ...prev,
+                children: prev.children.map(c =>
+                    c.id === childId ? { ...c, negotiation: null } : c
+                ),
+            }));
+            return;
+        }
+        // Child accepts — add contract task to today's dayLog, mark as contractTask
+        const today = getTodayStr();
+        setState(prev => {
+            const child = prev.children.find(c => c.id === childId);
+            if (!child?.negotiation?.contractTask) return prev;
+
+            const contractBonus = {
+                id: generateId(),
+                templateId: 'contract-' + generateId(),
+                text: child.negotiation.contractTask.text,
+                icon: child.negotiation.contractTask.icon || '⚔️',
+                isContractTask: true,
+                rewardMinutes: 0,
+                xpReward: 0,
+                completedAt: null,
+            };
+
+            const existingLog = prev.dayLogs?.[childId]?.[today];
+            const dayLog = existingLog || {};
+            const updatedDayLog = {
+                ...dayLog,
+                contractTask: contractBonus,
+            };
+
+            return {
+                ...prev,
+                children: prev.children.map(c =>
+                    c.id === childId
+                        ? { ...c, negotiation: { ...c.negotiation, status: 'accepted' } }
+                        : c
+                ),
+                dayLogs: {
+                    ...prev.dayLogs,
+                    [childId]: {
+                        ...(prev.dayLogs?.[childId] || {}),
+                        [today]: updatedDayLog,
+                    },
+                },
+            };
+        });
+    }, []);
+
+    const completeContract = useCallback((childId) => {
+        setState(prev => ({
+            ...prev,
+            children: prev.children.map(c =>
+                c.id === childId
+                    ? {
+                        ...c,
+                        activeCurse: { ...DEFAULT_CHILD_FIELDS.activeCurse },
+                        negotiation: null,
+                    }
+                    : c
+            ),
+        }));
+    }, []);
+
     // ─── Import/Export ───
     const importState = useCallback((newState) => {
         setState(newState);
@@ -278,6 +481,18 @@ export function AppProvider({ children: reactChildren }) {
         getDayLog,
         getOrCreateDayLog,
         updateDayLog,
+        // Vouchers
+        giveVoucher,
+        removeVoucher,
+        // Curse
+        applyCurse,
+        liftCurse,
+        updateCursePoints,
+        // Negotiation
+        requestNegotiation,
+        createContract,
+        respondToContract,
+        completeContract,
         // Import
         importState,
     };

@@ -1126,6 +1126,144 @@ select.input {
   margin-bottom: var(--space-xs);
 }
 
+/* ─── Voucher System ─── */
+.voucher-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%);
+  border: 1px solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.voucher-card:hover {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.18) 0%, rgba(245, 158, 11, 0.18) 100%);
+  transform: translateY(-1px);
+}
+
+.voucher-card.voucher-expiring {
+  border-color: var(--color-danger);
+  animation: pulse-danger 1.5s ease-in-out infinite;
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.2);
+}
+
+@keyframes pulse-danger {
+
+  0%,
+  100% {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 6px rgba(248, 113, 113, 0.15);
+  }
+
+  50% {
+    border-color: var(--color-danger-border);
+    box-shadow: 0 0 16px rgba(248, 113, 113, 0.35);
+  }
+}
+
+/* ─── Curse System ─── */
+.curse-counter {
+  background: linear-gradient(135deg, rgba(88, 28, 135, 0.35) 0%, rgba(30, 10, 60, 0.6) 100%);
+  border: 2px solid rgba(139, 92, 246, 0.4);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl) var(--space-lg);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.15), inset 0 0 60px rgba(0, 0, 0, 0.3);
+}
+
+.curse-counter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(139, 92, 246, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.curse-progress-container {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-full);
+  overflow: visible;
+  margin: var(--space-md) 0 var(--space-sm);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.curse-progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, #7c3aed 0%, #a78bfa 50%, #c4b5fd 100%);
+  transition: width var(--transition-slow) ease-out;
+  min-width: 2px;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.5);
+}
+
+.curse-threshold-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  background: var(--color-warning);
+  border-radius: 2px;
+  z-index: 2;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+  transition: left var(--transition-slow);
+}
+
+.curse-threshold-label {
+  position: absolute;
+  top: -22px;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--color-warning);
+  white-space: nowrap;
+}
+
+/* ─── Negotiation & Contract ─── */
+.negotiation-card {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  animation: slideUp 0.3s ease;
+}
+
+.contract-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--accent-secondary);
+}
+
+.btn-curse {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(88, 28, 135, 0.2) 100%);
+  color: var(--accent-secondary);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.btn-curse:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3) 0%, rgba(88, 28, 135, 0.3) 100%);
+  transform: translateY(-1px);
+}
+
+.card-curse-top {
+  border-top: 3px solid rgba(139, 92, 246, 0.6);
+}
+
 /* ─── Responsive ─── */
 @media (max-width: 480px) {
   :root {

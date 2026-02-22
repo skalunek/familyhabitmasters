@@ -13,6 +13,7 @@ import {
     CATEGORY_LABELS,
     ICON_OPTIONS,
     DAY_LABELS,
+    CURSE_DEFAULT_NEGOTIATION_THRESHOLD,
     generateId,
 } from '../data/defaults';
 import { exportData, importData } from '../services/storage';
@@ -38,6 +39,9 @@ import {
     AlertTriangle,
     Star,
     Calendar,
+    Backpack,
+    Shield,
+    HandshakeIcon,
 } from 'lucide-react';
 
 // ─── Emoji Picker ───
@@ -145,6 +149,8 @@ function ChildrenTab() {
     const [editingId, setEditingId] = useState(null);
     const [editName, setEditName] = useState('');
     const [editAvatar, setEditAvatar] = useState('');
+    const [editBaseTime, setEditBaseTime] = useState(60);
+    const [editMaxTime, setEditMaxTime] = useState(90);
 
     const handleAdd = () => {
         if (newName.trim()) {
@@ -158,11 +164,18 @@ function ChildrenTab() {
         setEditingId(child.id);
         setEditName(child.name);
         setEditAvatar(child.avatar);
+        setEditBaseTime(child.baseTime ?? state.settings.baseTime);
+        setEditMaxTime(child.maxTime ?? state.settings.maxTime);
     };
 
     const handleSaveEdit = () => {
         if (editName.trim()) {
-            updateChild(editingId, { name: editName.trim(), avatar: editAvatar });
+            updateChild(editingId, {
+                name: editName.trim(),
+                avatar: editAvatar,
+                baseTime: Number(editBaseTime),
+                maxTime: Number(editMaxTime),
+            });
             setEditingId(null);
         }
     };
@@ -185,6 +198,12 @@ function ChildrenTab() {
                                 <>
                                     <EmojiPicker value={editAvatar} onChange={setEditAvatar} options={AVATAR_OPTIONS} />
                                     <input type="text" className="input flex-1" value={editName} onChange={(e) => setEditName(e.target.value)} autoFocus />
+                                    <div className="flex gap-sm items-center">
+                                        <label className="text-xs text-muted">Baza:</label>
+                                        <input type="number" className="input" style={{ width: '65px' }} value={editBaseTime} onChange={e => setEditBaseTime(e.target.value)} />
+                                        <label className="text-xs text-muted">Max:</label>
+                                        <input type="number" className="input" style={{ width: '65px' }} value={editMaxTime} onChange={e => setEditMaxTime(e.target.value)} />
+                                    </div>
                                     <button className="btn btn-icon" onClick={handleSaveEdit} style={{ color: 'var(--color-success)' }}><Save size={16} /></button>
                                     <button className="btn btn-icon" onClick={() => setEditingId(null)}><X size={16} /></button>
                                 </>
@@ -193,7 +212,7 @@ function ChildrenTab() {
                                     <span className="quest-icon">{child.avatar}</span>
                                     <div className="flex-1">
                                         <span className="font-medium">{child.name}</span>
-                                        <div className="text-xs text-muted">Lvl {levelInfo.level} · {child.xp || 0} XP</div>
+                                        <div className="text-xs text-muted">Lvl {levelInfo.level} · {child.xp || 0} XP · ⏱️ {child.baseTime ?? state.settings.baseTime}/{child.maxTime ?? state.settings.maxTime} min</div>
                                     </div>
                                     <button className="btn btn-icon" onClick={() => startEdit(child)}><Edit3 size={16} /></button>
                                     <button className="btn btn-icon" onClick={() => handleRemove(child.id, child.name)} style={{ color: 'var(--color-danger)' }}><Trash2 size={16} /></button>
@@ -761,11 +780,34 @@ function SettingsTab() {
 // ─── Child Preview Tab ───
 
 function ChildPreviewTab() {
-    const { state, getOrCreateDayLog, updateDayLog } = useApp();
+    const {
+        state, getOrCreateDayLog, updateDayLog,
+        giveVoucher, removeVoucher,
+        applyCurse, liftCurse,
+        createContract,
+    } = useApp();
     const [selectedChildId, setSelectedChildId] = useState(state.children[0]?.id || null);
+
+    // Voucher form
+    const [showVoucherForm, setShowVoucherForm] = useState(false);
+    const [vName, setVName] = useState('');
+    const [vValue, setVValue] = useState(20);
+    const [vExpDays, setVExpDays] = useState(7);
+
+    // Curse form
+    const [showCurseForm, setShowCurseForm] = useState(false);
+    const [cursePoints, setCursePoints] = useState(1000);
+    const [curseThreshold, setCurseThreshold] = useState(CURSE_DEFAULT_NEGOTIATION_THRESHOLD * 100);
+
+    // Contract form
+    const [contractText, setContractText] = useState('');
+    const [contractIcon, setContractIcon] = useState('⚔️');
 
     const child = state.children.find(c => c.id === selectedChildId);
     const dayLog = selectedChildId ? getOrCreateDayLog(selectedChildId) : null;
+    const curse = child?.activeCurse;
+    const isCursed = curse?.isActive === true;
+    const negotiation = child?.negotiation;
 
     const handleRemovePenalty = (penaltyId) => {
         if (!dayLog || !selectedChildId) return;
@@ -786,6 +828,35 @@ function ChildPreviewTab() {
         updateDayLog(selectedChildId, updated);
     };
 
+    const handleGiveVoucher = () => {
+        if (!vName.trim() || !selectedChildId) return;
+        const expiresAt = Date.now() + (vExpDays * 24 * 60 * 60 * 1000);
+        giveVoucher(selectedChildId, { name: vName.trim(), value: Number(vValue), expiresAt });
+        setVName('');
+        setVValue(20);
+        setVExpDays(7);
+        setShowVoucherForm(false);
+    };
+
+    const handleApplyCurse = () => {
+        if (!selectedChildId || !cursePoints) return;
+        applyCurse(selectedChildId, Number(cursePoints), Number(curseThreshold) / 100);
+        setShowCurseForm(false);
+    };
+
+    const handleLiftCurse = () => {
+        if (!selectedChildId) return;
+        if (window.confirm('Naprawdę zdjąć klątwę?')) {
+            liftCurse(selectedChildId);
+        }
+    };
+
+    const handleCreateContract = () => {
+        if (!selectedChildId || !contractText.trim()) return;
+        createContract(selectedChildId, { text: contractText.trim(), icon: contractIcon });
+        setContractText('');
+    };
+
     if (state.children.length === 0) {
         return <div className="text-center text-secondary animate-fade-in"><p>Dodaj dzieci w zakładce "Dzieci"</p></div>;
     }
@@ -797,12 +868,14 @@ function ChildPreviewTab() {
                 {state.children.map(c => (
                     <button key={c.id} className={`btn ${selectedChildId === c.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setSelectedChildId(c.id)}>
                         {c.avatar} {c.name}
+                        {c.activeCurse?.isActive && ' ⛓️'}
                     </button>
                 ))}
             </div>
 
             {child && dayLog && (
                 <>
+                    {/* Status overview */}
                     <div className="card" style={{ background: 'var(--bg-primary)' }}>
                         <div className="flex items-center justify-between">
                             <span className="text-muted text-sm">Aktualny czas:</span>
@@ -818,6 +891,145 @@ function ChildPreviewTab() {
                         </div>
                     </div>
 
+                    {/* ═══ Curse Status ═══ */}
+                    {isCursed && (
+                        <div className="card card-curse-top">
+                            <div className="flex items-center gap-sm mb-sm">
+                                <Shield size={18} style={{ color: '#a78bfa' }} />
+                                <h4 style={{ color: '#c4b5fd' }}>⛓️ Klątwa aktywna</h4>
+                            </div>
+                            <div className="flex items-center justify-between text-sm mb-sm">
+                                <span className="text-muted">Postęp:</span>
+                                <span className="font-bold" style={{ color: '#c4b5fd' }}>
+                                    {curse.gatheredPoints} / {curse.requiredPoints} pkt
+                                    ({Math.round((curse.gatheredPoints / Math.max(1, curse.requiredPoints)) * 100)}%)
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm mb-sm">
+                                <span className="text-muted">Próg negocjacji:</span>
+                                <span className="text-warning font-bold">{Math.round((curse.negotiationThreshold || 0.7) * 100)}%</span>
+                            </div>
+
+                            {negotiation?.status === 'requested' && (
+                                <div className="negotiation-card mb-sm">
+                                    <div className="flex items-center gap-sm mb-sm">
+                                        <HandshakeIcon size={16} style={{ color: '#818cf8' }} />
+                                        <strong className="text-info text-sm">Dziecko chce negocjować!</strong>
+                                    </div>
+                                    <div className="flex flex-col gap-sm">
+                                        <div>
+                                            <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Zadanie ratunkowe:</label>
+                                            <div className="flex gap-sm items-center">
+                                                <EmojiPicker value={contractIcon} onChange={setContractIcon} />
+                                                <input type="text" className="input flex-1" placeholder="Np. Umycie łazienki" value={contractText} onChange={e => setContractText(e.target.value)} />
+                                            </div>
+                                        </div>
+                                        <button className="btn btn-primary" onClick={handleCreateContract} disabled={!contractText.trim()}>
+                                            <Shield size={16} /> Wyślij kontrakt
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {negotiation?.status === 'offered' && (
+                                <div className="text-xs text-info" style={{ fontStyle: 'italic' }}>
+                                    ⏳ Kontrakt wysłany — czekam na decyzję dziecka...
+                                </div>
+                            )}
+
+                            {negotiation?.status === 'accepted' && (
+                                <div className="text-xs text-success" style={{ fontStyle: 'italic' }}>
+                                    ✅ Kontrakt zaakceptowany — dziecko pracuje nad zadaniem.
+                                </div>
+                            )}
+
+                            <button className="btn btn-danger btn-sm" onClick={handleLiftCurse} style={{ marginTop: 'var(--space-sm)' }}>
+                                Zdejmij klątwę ręcznie
+                            </button>
+                        </div>
+                    )}
+
+                    {/* ═══ Curse / Voucher Actions ═══ */}
+                    <div className="card" style={{ background: 'var(--bg-primary)' }}>
+                        <div className="flex gap-sm flex-wrap">
+                            {!isCursed && (
+                                <button className="btn btn-curse" onClick={() => setShowCurseForm(!showCurseForm)}>
+                                    <Shield size={16} /> Nałóż klątwę
+                                </button>
+                            )}
+                            <button className="btn btn-warning" onClick={() => setShowVoucherForm(!showVoucherForm)}>
+                                <Backpack size={16} /> Podaruj voucher
+                            </button>
+                        </div>
+
+                        {/* Curse creation form */}
+                        {showCurseForm && !isCursed && (
+                            <div className="flex flex-col gap-sm" style={{ marginTop: 'var(--space-md)' }}>
+                                <div>
+                                    <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Punkty długu:</label>
+                                    <input type="number" className="input" value={cursePoints} onChange={e => setCursePoints(e.target.value)} min={100} step={100} />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Próg negocjacji (%):</label>
+                                    <input type="number" className="input" value={curseThreshold} onChange={e => setCurseThreshold(e.target.value)} min={10} max={100} step={5} />
+                                </div>
+                                <div className="flex gap-sm">
+                                    <button className="btn btn-curse flex-1" onClick={handleApplyCurse}>
+                                        ⛓️ Nałóż klątwę ({cursePoints} pkt, negocjacje od {curseThreshold}%)
+                                    </button>
+                                    <button className="btn btn-secondary" onClick={() => setShowCurseForm(false)}>Anuluj</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Voucher creation form */}
+                        {showVoucherForm && (
+                            <div className="flex flex-col gap-sm" style={{ marginTop: 'var(--space-md)' }}>
+                                <div>
+                                    <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Nazwa vouchera:</label>
+                                    <input type="text" className="input" placeholder="Np. Nagroda za czyste okno" value={vName} onChange={e => setVName(e.target.value)} />
+                                </div>
+                                <div className="flex gap-sm">
+                                    <div className="flex-1">
+                                        <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Wartość (minuty):</label>
+                                        <input type="number" className="input" value={vValue} onChange={e => setVValue(e.target.value)} min={5} step={5} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-xs text-muted" style={{ display: 'block', marginBottom: '4px' }}>Ważność (dni):</label>
+                                        <input type="number" className="input" value={vExpDays} onChange={e => setVExpDays(e.target.value)} min={1} max={90} />
+                                    </div>
+                                </div>
+                                <div className="flex gap-sm">
+                                    <button className="btn btn-warning flex-1" onClick={handleGiveVoucher} disabled={!vName.trim()}>
+                                        🎟️ Podaruj voucher
+                                    </button>
+                                    <button className="btn btn-secondary" onClick={() => setShowVoucherForm(false)}>Anuluj</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ═══ Inventory ═══ */}
+                    {(child.inventory || []).length > 0 && (
+                        <div className="card">
+                            <h4 className="mb-sm flex items-center gap-sm"><Backpack size={16} className="text-warning" /> Ekwipunek ({child.inventory.length})</h4>
+                            <div className="flex flex-col gap-xs">
+                                {child.inventory.map(v => {
+                                    const expired = v.expiresAt && Date.now() > v.expiresAt;
+                                    return (
+                                        <div key={v.id} className="flex items-center justify-between text-sm" style={{ opacity: expired ? 0.5 : 1 }}>
+                                            <span>🎟️ {v.name} (+{v.value} min) {expired && '⏰ wygasł'}</span>
+                                            <button className="btn btn-danger btn-sm" onClick={() => removeVoucher(selectedChildId, v.id)} style={{ fontSize: '0.7rem' }}>
+                                                Usuń
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Carry-over */}
                     {dayLog.carryOverEffects && dayLog.carryOverEffects.length > 0 && (
                         <div className="carry-over-banner">
                             <div className="flex items-center gap-sm mb-sm">
@@ -828,6 +1040,7 @@ function ChildPreviewTab() {
                         </div>
                     )}
 
+                    {/* Bonus / Penalty / Events — same as before */}
                     <div className="card card-success-top">
                         <h4 className="mb-sm text-success flex items-center gap-sm"><Sparkles size={18} /> Dodaj bonus</h4>
                         <div className="flex flex-wrap gap-xs">

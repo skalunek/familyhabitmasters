@@ -14,10 +14,12 @@ import {
     withdrawBonus,
     applyPenalty,
     removePenalty,
+    computeLevel,
     calculateDaySummary,
     compactDayLog,
     compactOldLogs,
-    computeLevel,
+    useVoucher,
+    removeExpiredVouchers,
 } from '../services/dayEngine';
 import {
     DEFAULT_SETTINGS,
@@ -458,5 +460,76 @@ describe('calculateDaySummary', () => {
         expect(summary.totalBonusMinutes).toBe(DEFAULT_BONUS_MISSIONS[0].rewardMinutes);
         expect(summary.totalPenaltyMinutes).toBe(DEFAULT_PENALTIES[0].penaltyMinutes);
         expect(summary.xpEarned).toBeGreaterThanOrEqual(0);
+    });
+});
+
+// ─── Per-Child Time Limits ───
+
+describe('createDayLog with per-child time limits', () => {
+    it('uses child baseTime/maxTime when childData provided', () => {
+        const childData = { baseTime: 45, maxTime: 120 };
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS, 'child-1', null, childData);
+        expect(dayLog.baseTime).toBe(45);
+        expect(dayLog.maxTime).toBe(120);
+        expect(dayLog.currentTime).toBe(45);
+    });
+
+    it('falls back to global settings when childData is null', () => {
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS, 'child-1', null, null);
+        expect(dayLog.baseTime).toBe(DEFAULT_SETTINGS.baseTime);
+        expect(dayLog.maxTime).toBe(DEFAULT_SETTINGS.maxTime);
+    });
+});
+
+// ─── Voucher Operations ───
+
+describe('useVoucher', () => {
+    it('adds voucher minutes to currentTime', () => {
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS);
+        const voucher = { id: 'v1', name: 'Test', value: 15, expiresAt: Date.now() + 86400000 };
+        const updated = useVoucher(dayLog, voucher);
+        expect(updated.currentTime).toBe(dayLog.currentTime + 15);
+        expect(updated.events.length).toBe(dayLog.events.length + 1);
+    });
+
+    it('caps currentTime at maxTime', () => {
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS);
+        const voucher = { id: 'v2', name: 'Big', value: 999, expiresAt: Date.now() + 86400000 };
+        const updated = useVoucher(dayLog, voucher);
+        expect(updated.currentTime).toBe(dayLog.maxTime);
+    });
+
+    it('ignores expired voucher', () => {
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS);
+        const voucher = { id: 'v3', name: 'Old', value: 30, expiresAt: Date.now() - 1000 };
+        const updated = useVoucher(dayLog, voucher);
+        expect(updated.currentTime).toBe(dayLog.currentTime);
+    });
+
+    it('returns unchanged dayLog for null voucher', () => {
+        const dayLog = createDayLog('2025-03-01', templates, DEFAULT_SETTINGS);
+        const updated = useVoucher(dayLog, null);
+        expect(updated).toBe(dayLog);
+    });
+});
+
+describe('removeExpiredVouchers', () => {
+    it('removes expired vouchers', () => {
+        const inventory = [
+            { id: 'a', expiresAt: Date.now() - 1000 },
+            { id: 'b', expiresAt: Date.now() + 86400000 },
+            { id: 'c', expiresAt: null },
+        ];
+        const result = removeExpiredVouchers(inventory);
+        expect(result).toHaveLength(2);
+        expect(result.map(v => v.id)).toEqual(['b', 'c']);
+    });
+
+    it('returns empty array from all-expired inventory', () => {
+        const inventory = [
+            { id: 'x', expiresAt: Date.now() - 1 },
+            { id: 'y', expiresAt: Date.now() - 100000 },
+        ];
+        expect(removeExpiredVouchers(inventory)).toHaveLength(0);
     });
 });

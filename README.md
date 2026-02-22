@@ -4,7 +4,7 @@ Live demo: https://skalunek.github.io/familyhabitmasters/
 
 **Zamień obowiązki dzieci w ekscytujące misje!**
 
-Darmowa, otwartoźródłowa aplikacja webowa (PWA) do grywalizacji codziennych obowiązków dzieci. Walutą w grze jest czas na multimedia (gry/bajki) oraz **XP (punkty doświadczenia)**. Aplikacja działa w 100% lokalnie — bez chmury, bez konta, bez opłat.
+Darmowa, otwartoźródłowa aplikacja webowa (PWA) do grywalizacji codziennych obowiązków dzieci. Walutą w grze jest czas na multimedia (gry/bajki) oraz **XP (punkty doświadczenia)**. System posiada mechanikę **Voucherów** (nagrody-artefakty) oraz **Misji Odkupienia** (edukacyjna alternatywa dla kar). Aplikacja działa w 100% lokalnie — bez chmury, bez konta, bez opłat.
 
 ## ✨ Funkcje
 
@@ -17,7 +17,11 @@ Darmowa, otwartoźródłowa aplikacja webowa (PWA) do grywalizacji codziennych o
 - 📅 **Dni bez ekranów** — harmonogram stały (dni tygodnia) + kalendarz wyjątków + przycisk "na dziś"; w te dni licznik czasu wyłączony, a zadania dają XP z mnożnikiem ×2
 - 🔄 **Inteligentny carry-over** — konsekwencje z poprzedniego dnia przenoszone na pierwszy dzień z ekranami (pomijają dni offline)
 - 👤 **Indywidualne zadania** — questy, bonusy i uchybienia przypisywane do konkretnych dzieci
-- ⏱️ **System Czasu** — konfigurowalny czas bazowy, maksymalny, krok czasowy
+- ⏱️ **Indywidualne limity czasu** — każde dziecko z własnym baseTime/maxTime (konfigurowalne per-child)
+- 🎒 **Ekwipunek (Vouchery)** — rodzic podarowuje artefakty czasowe z datą ważności; dziecko konsumuje je z plecaka
+- ⛓️ **Misja Odkupienia (Klątwa)** — alternatywa dla kar: blokada czasu do odpracowania punktów zadaniami
+- 🤝 **Negocjacje** — po osiągnięciu progu (konfigurowalny per-klątwa) dziecko wzywa rodzica do negocjacji
+- ⚔️ **Kontrakt Ratunkowy** — rodzic oferuje trudne zadanie = natychmiastowe zdjęcie klątwy
 - 🔁 **Jednorazowe/wielokrotne** — bonusy i uchybienia z flagą single-use/multi-use
 - 📊 **Kompaktowanie logów** — logi starsze niż 14 dni automatycznie kompaktowane do statystyk
 - ⚡ **Carry-over** — konsekwencje przenoszone na następny dzień z ekranami (pomijają dni offline, łańcuchowo)
@@ -43,28 +47,33 @@ npm run build      # Build produkcyjny
 4. Ustaw progi XP i nagrody w zakładce "Levele"
 5. Zaznacz dni bez ekranów w ustawieniach (stałe + wyjątki w kalendarzu)
 6. Zaplanuj przyszłe przerwy od ekranów w kalendarzu wyjątków
-7. Podglądaj i zarządzaj dniem dziecka
+7. Podaruj vouchery z plecaka lub nałóż klątwę w zakładce "Podgląd"
+8. Podglądaj i zarządzaj dniem dziecka
 
 ### Dla Dziecka:
 1. Wybierz swój profil
 2. Wykonuj codzienne misje → zdobywaj XP
 3. **Zamknij poranne i popołudniowe misje aby odblokować czas!**
 4. Rób misje dodatkowe → zysk czasu + XP
-5. W dni bez ekranów → zbieraj XP z bonusowym mnożnikiem ×2 (licznik czasu wyłączony)
+5. Użyj vouchera z plecaka → dodatkowe minuty!
+6. W dni bez ekranów → zbieraj XP z bonusowym mnożnikiem ×2
+7. Pod klątwą → wykonuj zadania aby odpracować dług i odzyskaj czas
 
 ### Zasady:
-- **Czas bazowy**: 60 minut | **Max**: 90 minut (konfigurowalne)
+- **Czas bazowy**: 60 minut | **Max**: 90 minut (konfigurowalne per-child)
 - **Niewykonany quest** = utrata czasu
 - **Misja dodatkowa** = zysk czasu + XP
 - **Uchybienie** = utrata czasu (+ opcjonalnie konsekwencja jutro, + opcjonalnie utrata XP)
 - **Levelowanie** = zbieraj XP za zadania → odblokuj nagrody
+- **Voucher** = artefakt czasowy z datą ważności, konsumowany z plecaka
+- **Klątwa** = blokada czasu → odpracuj punkty zadaniami → negocjuj → kontrakt ratunkowy
 
 ## 🛠️ Technologie
 
 - **React** + **Vite** — UI framework
 - **Vanilla CSS** — system designu z dark theme
 - **LocalStorage** — persystencja danych
-- **Vitest** — testy automatyczne (64+ testów)
+- **Vitest** — testy automatyczne (75+ testów)
 - **GitHub Actions** — CI pipeline + deploy na GitHub Pages
 - **lucide-react** — ikony
 - **PWA** — Progressive Web App
@@ -87,6 +96,7 @@ src/
 
 - [x] **Faza 1.0** — Standalone PWA z LocalStorage
 - [x] **Faza 1.5** — XP, levele, time gating, dni offline, per-child assignment
+- [x] **Faza 1.6** — Vouchery, Klątwy, Negocjacje, Indywidualne limity
 - [ ] **Faza 2.0** — Cloud (BYOB: Firebase / Supabase)
 - [ ] **Faza 3.0** — QR Onboarding + wizualna personalizacja
 

@@ -2,6 +2,29 @@
  * Default data templates and app settings for FamilyHabitMasters.
  */
 
+/**
+ * Default negotiation threshold for curses (0.0–1.0).
+ * Can be overridden per-curse when parent creates one.
+ */
+export const CURSE_DEFAULT_NEGOTIATION_THRESHOLD = 0.7;
+
+/**
+ * Default per-child fields added on creation / migration.
+ * baseTime/maxTime will be populated from DEFAULT_SETTINGS at runtime.
+ */
+export const DEFAULT_CHILD_FIELDS = {
+    baseTime: null,      // filled from settings on creation
+    maxTime: null,       // filled from settings on creation
+    inventory: [],       // vouchers: { id, name, type, value, expiresAt }
+    activeCurse: {
+        isActive: false,
+        requiredPoints: 0,
+        gatheredPoints: 0,
+        negotiationThreshold: CURSE_DEFAULT_NEGOTIATION_THRESHOLD,
+    },
+    negotiation: null,   // null | { status: 'requested'|'offered', contractTask?, timestamp }
+};
+
 export const DEFAULT_SETTINGS = {
     baseTime: 60,
     maxTime: 90,

@@ -51,8 +51,11 @@ export function isOfflineDay(dateStr, settings) {
  * @param {string} childId - ID of the child (for assignedTo filtering)
  * @param {object|null} previousDayLog - previous day's log (carry-over source)
  */
-export function createDayLog(date, templates, settings, childId = null, previousDayLog = null) {
-    let adjustedBaseTime = settings.baseTime;
+export function createDayLog(date, templates, settings, childId = null, previousDayLog = null, childData = null) {
+    // Per-child time limits take precedence over global settings
+    const effectiveBaseTime = childData?.baseTime ?? settings.baseTime;
+    const effectiveMaxTime = childData?.maxTime ?? settings.maxTime;
+    let adjustedBaseTime = effectiveBaseTime;
     const carryOverEffects = [];
 
     // Only carry over if previous log is from exactly yesterday
@@ -115,7 +118,7 @@ export function createDayLog(date, templates, settings, childId = null, previous
         }
     }
 
-    adjustedBaseTime = Math.max(0, Math.min(settings.maxTime, adjustedBaseTime));
+    adjustedBaseTime = Math.max(0, Math.min(effectiveMaxTime, adjustedBaseTime));
 
     // Filter templates by child assignment
     const filterForChild = (list) => {
@@ -131,7 +134,7 @@ export function createDayLog(date, templates, settings, childId = null, previous
     return {
         date,
         baseTime: adjustedBaseTime,
-        maxTime: settings.maxTime,
+        maxTime: effectiveMaxTime,
         currentTime: adjustedBaseTime,
         isOfflineDay: offline,
         xpMultiplier,
@@ -395,6 +398,44 @@ export function removePenalty(dayLog, penaltyId) {
         xpEarned: (dayLog.xpEarned || 0) + xpRestore,
         events: [...dayLog.events, event],
     };
+}
+
+// ─── Voucher Operations ───
+
+/**
+ * Use a voucher from child's inventory — adds minutes to today's time.
+ * Returns { dayLog, voucherId } or null if voucher not found/expired.
+ */
+export function useVoucher(dayLog, voucher) {
+    if (!voucher) return dayLog;
+    // Check expiry
+    if (voucher.expiresAt && Date.now() > voucher.expiresAt) {
+        return dayLog; // expired, no effect
+    }
+    const addMinutes = voucher.value || 0;
+    const newTime = Math.min(dayLog.maxTime, dayLog.currentTime + addMinutes);
+
+    const event = {
+        id: generateId(),
+        timestamp: Date.now(),
+        text: `🎒 Użyto voucher: ${voucher.name} → +${addMinutes} min`,
+        type: 'positive',
+    };
+
+    return {
+        ...dayLog,
+        currentTime: newTime,
+        events: [...dayLog.events, event],
+    };
+}
+
+/**
+ * Remove expired vouchers from a child's inventory.
+ * @returns {Array} filtered inventory (only valid vouchers)
+ */
+export function removeExpiredVouchers(inventory) {
+    const now = Date.now();
+    return inventory.filter(v => !v.expiresAt || v.expiresAt > now);
 }
 
 // ─── Summary & Compaction ───
